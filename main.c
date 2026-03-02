@@ -245,4 +245,5 @@ Notes:
 -TimerA_CCR0 Has the highest priority so this is something that we should take into account as for what light it will correspond to
 -Interrupt vector register TAxIV is used to determine which flag requested an interrupt
 -Will need to transition to structure logic rather than just renaming with a,b,c etc.
+Will need to transition to structure logic.
 */
