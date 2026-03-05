@@ -104,8 +104,8 @@ int main(void){
     WDTCTL = WDTPW | WDTHOLD; //Used password and halted watchdog timer
     // Disable the GPIO power-on default high-impedance mode
     PMM_unlockLPM5();
-    setupSPI();
     pinInit();
+    setupSPI();
     __enable_interrupt();
     while(1)
         if(display_update_flag){

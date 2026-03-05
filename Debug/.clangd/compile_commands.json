@@ -2,6 +2,11 @@
    {
       "directory" : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/Debug",
       "command"   : "clang++ -I\"C:/ti/ccs2030/ccs/ccs_base/msp430/include\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx\" -I\"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include\" -D__MSP430FR6989__ -D_MPU_ENABLE -xc",
+      "file"      : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/LED_Matrix.c"
+   },
+   {
+      "directory" : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/Debug",
+      "command"   : "clang++ -I\"C:/ti/ccs2030/ccs/ccs_base/msp430/include\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx\" -I\"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include\" -D__MSP430FR6989__ -D_MPU_ENABLE -xc",
       "file"      : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx/adc12_b.c"
    },
    {
@@ -138,10 +143,5 @@
       "directory" : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/Debug",
       "command"   : "clang++ -I\"C:/ti/ccs2030/ccs/ccs_base/msp430/include\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx\" -I\"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include\" -D__MSP430FR6989__ -D_MPU_ENABLE -xc",
       "file"      : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx/wdt_a.c"
-   },
-   {
-      "directory" : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/Debug",
-      "command"   : "clang++ -I\"C:/ti/ccs2030/ccs/ccs_base/msp430/include\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab\" -I\"C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/driverlib/MSP430FR5xx_6xx\" -I\"C:/ti/ccs2030/ccs/tools/compiler/ti-cgt-msp430_21.6.1.LTS/include\" -D__MSP430FR6989__ -D_MPU_ENABLE -xc",
-      "file"      : "C:/Users/mokoo/OneDrive/Documents/GitHub/Microcontrollers-Lab/LED_Matrix.c"
    }
 ]
