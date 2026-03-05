@@ -1,4 +1,4 @@
-"./main.obj"
+"./LED_Matrix.obj"
 "./driverlib/MSP430FR5xx_6xx/adc12_b.obj"
 "./driverlib/MSP430FR5xx_6xx/aes256.obj"
 "./driverlib/MSP430FR5xx_6xx/comp_e.obj"
