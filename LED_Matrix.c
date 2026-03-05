@@ -4,9 +4,12 @@
 #include <stdio.h>
 #define NUM_of_digit 3
 
+volatile int display_update_flag = 0;
+volatile uint8_t spiBUSY = 0;
+volatile uint8_t *TXbuff;
+volatile uint8_t TXlength;
 //Test using a smiley face
-const uint8_t images[NUM_of_digit][8] = 
-{
+const uint8_t images[NUM_of_digit][8] = {
     // 0
     {
         0b00111100,
@@ -57,9 +60,17 @@ void setupSPI(void){
 }
 
 //Need to add a function that essentially will transfer the desired address and data so that it can program the LED matrix
-void transmitdataSPI(uint8_t row, uint8_t data){
-    UCA0TXBUF = row;
-    UCA0TXBUF = data;
+void transmitdataSPI(uint8_t rowaddress, uint8_t data){
+    uint8_t bufferSPI[2]; //Needed so that we can send out 1 byte out at a time since that is the max we can send
+    bufferSPI[0] = rowaddress; //Row address
+    bufferSPI[1] = data; //data being sent
+
+    TXbuff = bufferSPI; //setting ptr = to array meaning we are pointing to the first index
+    TXlength = 2; //buffer length
+
+    UCA0TXBUF = *TXbuff++; //derefrencing pointer to get value and then incrementing
+    TXlength --; //decrementing length so we can know when we are done sending byte
+    spiBUSY = 1; //mark as busy
 }
 
 // void ledmatrixInit(){
@@ -75,6 +86,8 @@ void sendimageSPI(uint8_t digit){
 
 // void CS_LOW
 
+//void CS_HIGH
+
 void pinInit(void){
 //P4.2 -> SPI MOSI
 P4DIR &= ~BIT2;
@@ -86,10 +99,11 @@ P1DIR &= ~BIT5;
 P1SEL0 &= ~BIT5;
 P1SEL1 |= BIT5;
 }
-volatile int display_update_flag = 0;
 
 int main(void){
     WDTCTL = WDTPW | WDTHOLD; //Used password and halted watchdog timer
+    // Disable the GPIO power-on default high-impedance mode
+    PMM_unlockLPM5();
     setupSPI();
     pinInit();
     __enable_interrupt();
@@ -100,5 +114,7 @@ int main(void){
         }
 }
 
-#pragma vector = 
-
+#pragma vector = USCI_A0_VECTOR
+__interrupt void USCI_A0_ISR(void){
+    spiBUSY = 1;
+}
