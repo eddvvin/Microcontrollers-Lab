@@ -4,11 +4,13 @@
 #include <stdio.h>
 #define NUM_of_digit 3
 
+//Need to go into the lab and test out 
 volatile int display_update_flag = 0;
 volatile uint8_t spiBUSY = 0;
 volatile uint8_t *TXbuff;
 volatile uint8_t TXlength;
-volatile uint8_t bufferSPI;
+volatile uint8_t bufferSPI[2]; //Needed so that we can send out 1 byte out at a time since that is the max we can send
+
 
 //Test using a smiley face
 const uint8_t images[NUM_of_digit][8] = {
@@ -57,8 +59,9 @@ void setupSPI(void){
     UCA0CTLW0 &= ~UCSSEL0;// Choosing SMCLK in master mode
     UCA0CTLW0 |= UCSSEL1; 
     UCA0CTLW0 &= ~UC7BIT;//Setting Character length to 8 bit data
-    UCA0IE |= UCTXIE; //Enable eUSCIO TX interrupt
     UCA0CTLW0 &= ~UCSWRST;//Needed for SPI to function correctly
+    UCA0IE |= UCTXIE; //Enable eUSCIO TX interrupt
+
 }
 
 void CS_LOW(void){
@@ -70,9 +73,8 @@ void CS_HIGH(void){
 }
 
 //Need to add a function that essentially will transfer the desired address and data so that it can program the LED matrix
-void transmitdataSPI(uint8_t rowaddress, uint8_t data){
-    uint8_t bufferSPI[2]; //Needed so that we can send out 1 byte out at a time since that is the max we can send
-    bufferSPI[0] = rowaddress; //Row address
+void transmitdataSPI(uint8_t address, uint8_t data){
+    bufferSPI[0] = address; //address
     bufferSPI[1] = data; //data being sent
 
     TXbuff = bufferSPI; //setting ptr = to array meaning we are pointing to the first index
@@ -81,17 +83,21 @@ void transmitdataSPI(uint8_t rowaddress, uint8_t data){
     CS_LOW();
     UCA0TXBUF = *TXbuff++; //derefrencing pointer to get value and then incrementing
     TXlength --; //decrementing length so we can know when we are done sending byte
+    
     spiBUSY = 1; //mark as busy
 }
 
-// void ledmatrixInit(){
-
-// }
+void ledmatrixInit(){
+    transmitdataSPI(0x0A,0x0F); //For changing Intensity register
+    transmitdataSPI(0x0B,0x07); // Changing scan limit
+    transmitdataSPI(0x09,0x00); //Decode mode basically making it so that I dont have to set segments they already do that
+    transmitdataSPI(0x0F, 0x01); //Test for display
+}
 
 void sendimageSPI(uint8_t digit){ 
     uint8_t row;
     for(row = 0; row < 8; row++){
-        transmitdataSPI(row, images[digit][row]);
+        transmitdataSPI(row+1, images[digit][row]);
     }
 }
 
@@ -106,20 +112,23 @@ P1DIR &= ~BIT5;
 P1SEL0 &= ~BIT5;
 P1SEL1 |= BIT5;
 
+//P9.6 -> GPIO (output)
 P9DIR |= BIT6;
 P9SEL0 &= ~BIT6;
 P9SEL1 &= ~BIT6;
 }
 
 int main(void){
-    uint32_t smclk = CS_getSMCLK();
-    printf("SMCLK = %lu Hz\n", smclk);
     WDTCTL = WDTPW | WDTHOLD; //Used password and halted watchdog timer
+    uint32_t smclk = CS_getSMCLK();
+    // printf("SMCLK = %lu Hz\n", smclk);
     // Disable the GPIO power-on default high-impedance mode
     PMM_unlockLPM5();
+    __enable_interrupt();
     pinInit();
     setupSPI();
-    __enable_interrupt();
+    ledmatrixInit();
+    // display_update_flag = 1;//Test case
     while(1)
         if(display_update_flag){
             display_update_flag = 0;
@@ -129,16 +138,20 @@ int main(void){
 
 #pragma vector = USCI_A0_VECTOR // Will activate once buffer is clear
 __interrupt void USCI_A0_ISR(void){
+    P1OUT ^= BIT0;
     switch(UCA0IV){
         case 2:
             break; //Am not using but for reading buffer
         case 4:
+            if(TXlength > 0){
             UCA0TXBUF = *TXbuff++; //Putting next byte into buffer
             TXlength--;
-            if(TXlength == 0){
+            }
+            else{
                 spiBUSY = 0;
                 CS_HIGH(); // Driving high to latch data
             }
+            break;
         default:
             break;
     }
