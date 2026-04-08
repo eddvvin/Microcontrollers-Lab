@@ -1,248 +1,288 @@
-#include <driverlib.h>
 #include <msp430.h>
-#include <msp430fr6989.h>
-#include <stdio.h>
-#define CaptureBufferSize 68
-#define totalTimings 67
-#define UpperLeader 9500
-#define LowerLeader 8500
+#include <stdint.h>
+#include <stdbool.h>
+#include "traffic_states.h"
 
-/*
-Pin 1.5 -> TA0.0
-Pin 1.6 -> TA0.1
-Pin 1.7 -> TA0.2
-*/
+// ============================================================================
+// PIN DEFINITIONS
+// ============================================================================
 
-volatile uint16_t CaptureBufferA[CaptureBufferSize];
-volatile uint16_t lastCaptureA = 0;
-volatile uint8_t framecompleteA = 0;
-volatile uint8_t captureindexA = 0;
-volatile uint8_t leaderDetectedA = 0; //0  Waiting ; 1 Detected
+// Shift register control (P2)
+#define DATA_PIN        BIT0    // P2.0
+#define SHIFT_CLK_PIN   BIT1    // P2.1
+#define LATCH_CLK_PIN   BIT2    // P2.2
 
-volatile uint16_t CaptureBufferB[CaptureBufferSize];
-volatile uint16_t lastCaptureB = 0;
-volatile uint8_t framecompleteB = 0;
-volatile uint8_t captureindexB = 0;
-volatile uint8_t leaderDetectedB = 0; //0  Waiting ; 1 Detected
+// Mode selection buttons (P3) - Active LOW with pull-ups
+#define BTN_MODE_DAYTIME      BIT0    // P3.0 - Normal/Daytime mode
+#define BTN_MODE_HIGH_TRAFFIC BIT1    // P3.1 - High Traffic mode
+#define BTN_MODE_NIGHT        BIT2    // P3.2 - Night mode
 
-volatile uint16_t CaptureBufferC[CaptureBufferSize];
-volatile uint16_t lastCaptureC = 0;
-volatile uint8_t framecompleteC = 0;
-volatile uint8_t captureindexC = 0;
-volatile uint8_t leaderDetectedC = 0; //0  Waiting ; 1 Detected
+// Pedestrian buttons (P3) - Active LOW with pull-ups
+#define BTN_PED_NORTH   BIT3    // P3.3
+#define BTN_PED_SOUTH   BIT4    // P3.4
+#define BTN_PED_EAST    BIT5    // P3.5
+#define BTN_PED_WEST    BIT6    // P3.6
 
-int bit;
-volatile uint32_t result =0;
+// ============================================================================
+// GLOBAL VARIABLES
+// ============================================================================
 
-volatile uint32_t decodeNEC(volatile uint16_t *buffer)
-{
-    uint32_t value = 0;
-    int index = 2;   // skip leader mark and leader space
+LEDState currentLEDs;
+TrafficState currentState = STATE_NS_GREEN;
+OperatingMode currentMode = MODE_DAYTIME;
+volatile uint32_t systemTick = 0;
+volatile uint32_t stateTimer = 0;
+volatile bool stateExpired = false;
 
-    for(bit = 0; bit < 32; bit++)
-    {
-        uint16_t space = buffer[index + 1];  // skip mark, read space
+// ============================================================================
+// FUNCTION PROTOTYPES
+// ============================================================================
 
-        if(space > 1500)   // threshold between 562us and 1690us
-        {
-            value |= (1UL << bit);   // LSB first
-        }
+void System_init(void);
+void GPIO_init(void);
+void Timer_init(void);
+void shiftOut32bits(uint8_t *data);
+OperatingMode checkModeButtons(void);
+void handleModeChange(OperatingMode newMode);
 
-        index += 2;  // move to next mark/space pair
-    }
-
-    return value;
-}
-
-//Initializing capture mode CCR0
-void initTimerACapturemodeCCR0(void){
-    Timer_A_initCaptureModeParam capture = {0};
-    capture.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_0;
-    capture.captureMode = TIMER_A_CAPTUREMODE_RISING_AND_FALLING_EDGE;
-    capture.captureInputSelect = TIMER_A_CAPTURE_INPUTSELECT_CCIxA;
-    capture.synchronizeCaptureSource = TIMER_A_CAPTURE_SYNCHRONOUS;
-    capture.captureInterruptEnable = TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
-    capture.captureOutputMode = TIMER_A_OUTPUTMODE_OUTBITVALUE;
-    Timer_A_initCaptureMode(TIMER_A0_BASE, &capture);
-}
-
-//Initializing capture mode CCR1
-void initTimerACapturemodeCCR1(void){
-    Timer_A_initCaptureModeParam captureCCR1 = {0};
-    captureCCR1.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_1;
-    captureCCR1.captureMode = TIMER_A_CAPTUREMODE_RISING_AND_FALLING_EDGE;
-    captureCCR1.captureInputSelect = TIMER_A_CAPTURE_INPUTSELECT_CCIxA;
-    captureCCR1.synchronizeCaptureSource = TIMER_A_CAPTURE_SYNCHRONOUS;
-    captureCCR1.captureInterruptEnable = TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
-    captureCCR1.captureOutputMode = TIMER_A_OUTPUTMODE_OUTBITVALUE;
-    Timer_A_initCaptureMode(TIMER_A0_BASE, &captureCCR1);
-}
-
-//Initializing capture mode CCR2
-void initTimerACapturemodeCCR2(void){
-    Timer_A_initCaptureModeParam captureCCR2 = {0};
-    captureCCR2.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_2;
-    captureCCR2.captureMode = TIMER_A_CAPTUREMODE_RISING_AND_FALLING_EDGE;
-    captureCCR2.captureInputSelect = TIMER_A_CAPTURE_INPUTSELECT_CCIxA;
-    captureCCR2.synchronizeCaptureSource = TIMER_A_CAPTURE_SYNCHRONOUS;
-    captureCCR2.captureInterruptEnable = TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
-    captureCCR2.captureOutputMode = TIMER_A_OUTPUTMODE_OUTBITVALUE;
-    Timer_A_initCaptureMode(TIMER_A0_BASE, &captureCCR2);
-}
-
-//Enabling continuous mode
-void initTimerAContinuousMode(void){
-    Timer_A_initContinuousModeParam continuousmode = {0};
-    continuousmode.clockSource = TIMER_A_CLOCKSOURCE_SMCLK;
-    continuousmode.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
-    continuousmode.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
-    continuousmode.timerClear = TIMER_A_DO_CLEAR;
-    continuousmode.startTimer = true;
-    Timer_A_initContinuousMode(TIMER_A0_BASE, &continuousmode);
-}
-
-void P1_5_1_7init(void){
-    //P1.5 -> TA0.CCI0A
-    P1DIR  &= ~BIT5;
-    P1SEL0 |= BIT5;
-    P1SEL1 |= BIT5;
-
-    //P1.6 -> TA0.CCI1A
-    P1DIR &= ~BIT6;
-    P1SEL0 |= BIT6;
-    P2SEL0 |= BIT6;
-    
-    //P1.7 -> TA0.CCI2A
-    P1DIR &= ~BIT7;
-    P1SEL0 |= BIT7;
-    P2SEL0 |= BIT7;
-}
+// ============================================================================
+// MAIN FUNCTION
+// ============================================================================
 
 int main(void) {
-    // Stop watchdog timer
-    WDT_A_hold(__MSP430_BASEADDRESS_WDT_A__);
-    
-    // Disable the GPIO power-on default high-impedance mode
-    PMM_unlockLPM5();
+    WDTCTL = WDTPW | WDTHOLD;
 
-    initTimerACapturemodeCCR0();
+    // Initialize system
+    System_init();
+    GPIO_init();
+    Timer_init();
 
-    initTimerACapturemodeCCR1();
+    // Disable GPIO power-on default high-impedance mode
+    PM5CTL0 &= ~LOCKLPM5;
 
-    initTimerACapturemodeCCR2();
-        
-    //Enabling Timer_A Capture Compare Interrupt CCR0
-    Timer_A_enableCaptureCompareInterrupt(TIMER_A0_BASE,TIMER_A_CAPTURECOMPARE_REGISTER_0);
-    
-    initTimerAContinuousMode();
+    // Initialize LED state
+    initLEDState(&currentLEDs);
 
-    P1_5_1_7init();
+    // Start with all red
+    setAllRed(&currentLEDs);
+    shiftOut32bits(currentLEDs.byte);
 
+    // Enable global interrupts
     __enable_interrupt();
-    while(1){
-        if(framecompleteA){
-        result = decodeNEC(CaptureBufferA);
-        // Capturebuffer
-        framecompleteA = 0;
-        leaderDetectedA = 0;
+
+    // Initial state setup
+    currentState = STATE_NS_GREEN;
+    currentMode = MODE_DAYTIME;
+    stateTimer = getStateDuration(currentState);
+
+    // Main loop
+    while(1) {
+        // Check for mode button presses
+        OperatingMode requestedMode = checkModeButtons();
+
+        // Handle mode change if requested
+        if (requestedMode != currentMode) {
+            handleModeChange(requestedMode);
         }
-        if(framecompleteB){
-        result = decodeNEC(CaptureBufferB);
-        // Capturebuffer
-        framecompleteB = 0;
-        leaderDetectedB = 0;
-        }
-        if(framecompleteC){
-        result = decodeNEC(CaptureBufferC);
-        // Capturebuffer
-        framecompleteC = 0;
-        leaderDetectedC = 0;
-        }
-    }
-}
 
-#pragma vector = TIMER0_A0_VECTOR //Definition of the interrupt vector
-__interrupt void TIMER0_A0_CCR0_ISR(void){
-    uint16_t currentcapture = Timer_A_getCaptureCompareCount(TIMER_A0_BASE,TIMER_A_CAPTURECOMPARE_REGISTER_0);
-    uint16_t durationA = currentcapture - lastCaptureA;
-    lastCaptureA = currentcapture;
+        // Check if state timer expired
+        if (stateExpired) {
+            stateExpired = false;
 
-    //leader detection
-    if(durationA > LowerLeader && durationA < UpperLeader){
-        leaderDetectedA = 1;
-        captureindexA = 0;
-    }
+            // Move to next state
+            currentState = getNextState(currentState, currentMode);
 
-    if(leaderDetectedA){
-        if(captureindexA < CaptureBufferSize){
-            CaptureBufferA[captureindexA++] = durationA;
-        }
-        if(captureindexA == totalTimings){
-            framecompleteA = 1;
-            captureindexA = 0;
-            leaderDetectedA = 0;
-        }
-    }
-}
-
-#pragma vector = TIMER0_A1_VECTOR //NEED TO DO MORE REASEARCH BUT SEEMS TO HANDLE BOTH CCR1 and CCR2 
-__interrupt void TIMER0_A1_ISR(void){
-//Pg112 MSP430 optimizing C/C++ Compiler for more information on _even_in_range 
-
-    switch(__even_in_range(TA0IV,2)){
-        case 2:
-        {
-            uint16_t currentcapture = Timer_A_getCaptureCompareCount(TIMER_A0_BASE,TIMER_A_CAPTURECOMPARE_REGISTER_1);
-            uint16_t durationB = currentcapture - lastCaptureB;
-            lastCaptureB = currentcapture;
-
-               //leader detection
-            if(durationB > LowerLeader && durationB < UpperLeader){
-                leaderDetectedB = 1;
-                captureindexB = 0;
+            // Handle state wraparound based on mode
+            if (currentMode == MODE_DAYTIME) {
+                if (currentState > STATE_RETURN_TO_START) {
+                    currentState = STATE_NS_GREEN;
+                }
+            }
+            else if (currentMode == MODE_HIGH_TRAFFIC) {
+                if (currentState < STATE_N_PRIORITY_START || currentState > STATE_RETURN_HT) {
+                    currentState = STATE_N_PRIORITY_START;
+                }
+            }
+            else if (currentMode == MODE_NIGHT) {
+                // Toggle between flash on/off
+                if (currentState == STATE_NIGHT_FLASH_ON) {
+                    currentState = STATE_NIGHT_FLASH_OFF;
+                } else {
+                    currentState = STATE_NIGHT_FLASH_ON;
+                }
+            }
+            else if (currentMode == MODE_EMERGENCY) {
+                currentState = STATE_EMERGENCY_HOLD;
             }
 
-            if(leaderDetectedB){
-                if(captureindexB < CaptureBufferSize){
-                    CaptureBufferB[captureindexB++] = durationB;
-                }
-                if(captureindexB == totalTimings){
-                    framecompleteB = 1;
-                    captureindexB = 0;
-                    leaderDetectedB = 0;
-                    }
-                }
+            // Reload timer for new state
+            stateTimer = getStateDuration(currentState);
         }
-        case 4:
-        {
-            uint16_t currentcapture = Timer_A_getCaptureCompareCount(TIMER_A0_BASE,TIMER_A_CAPTURECOMPARE_REGISTER_2);
-            uint16_t durationC = currentcapture - lastCaptureC;
-            lastCaptureC = currentcapture;
 
-               //leader detection
-            if(durationC > LowerLeader && durationC < UpperLeader){
-                leaderDetectedC = 1;
-                captureindexC = 0;
+        // Execute current state and update LEDs
+        executeState(&currentLEDs, currentState);
+        shiftOut32bits(currentLEDs.byte);
+
+        // Enter low power mode until next interrupt
+        __bis_SR_register(LPM0_bits + GIE);
+        __no_operation();
+    }
+}
+
+// ============================================================================
+// INITIALIZATION FUNCTIONS
+// ============================================================================
+
+void System_init(void) {
+    // Configure clock to 1 MHz (default MCLK from DCO)
+    // For MSP430FR6989, default is already ~1MHz
+}
+
+void GPIO_init(void) {
+    // Configure P2.0, P2.1, P2.2 as outputs (shift register control)
+    P2DIR |= (DATA_PIN | SHIFT_CLK_PIN | LATCH_CLK_PIN);
+    P2OUT &= ~(DATA_PIN | SHIFT_CLK_PIN | LATCH_CLK_PIN);  // Start low
+
+    // Configure P3.0-P3.6 as inputs with pull-ups (buttons)
+    P3DIR &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
+               BTN_PED_NORTH | BTN_PED_SOUTH | BTN_PED_EAST | BTN_PED_WEST);
+
+    P3REN |= (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
+              BTN_PED_NORTH | BTN_PED_SOUTH | BTN_PED_EAST | BTN_PED_WEST);
+
+    P3OUT |= (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
+              BTN_PED_NORTH | BTN_PED_SOUTH | BTN_PED_EAST | BTN_PED_WEST);  // Pull-up
+
+    // Enable interrupts on mode buttons (for immediate response)
+    P3IES |= (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);  // High-to-low edge
+    P3IE |= (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);   // Enable interrupts
+    P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT); // Clear flags
+}
+
+void Timer_init(void) {
+    // Configure Timer_A0 for 1ms interrupts
+    // Using SMCLK (1 MHz) / 8 = 125 kHz
+    TA0CTL = TASSEL__SMCLK | MC__UP | ID__8;  // SMCLK, Up mode, divide by 8
+    TA0CCR0 = 125;  // 125 kHz / 125 = 1 kHz (1ms period)
+    TA0CCTL0 = CCIE;  // Enable interrupt
+}
+
+// ============================================================================
+// MODE CONTROL FUNCTIONS
+// ============================================================================
+
+OperatingMode checkModeButtons(void) {
+    // Read button states (active LOW)
+    uint8_t buttonState = P3IN;
+
+    // Check which mode button is pressed (LOW = pressed)
+    if (!(buttonState & BTN_MODE_NIGHT)) {
+        return MODE_NIGHT;
+    }
+    else if (!(buttonState & BTN_MODE_HIGH_TRAFFIC)) {
+        return MODE_HIGH_TRAFFIC;
+    }
+    else if (!(buttonState & BTN_MODE_DAYTIME)) {
+        return MODE_DAYTIME;
+    }
+
+    // No button pressed, return current mode
+    return currentMode;
+}
+
+void handleModeChange(OperatingMode newMode) {
+    currentMode = newMode;
+
+    // Transition to appropriate starting state for new mode
+    switch (newMode) {
+        case MODE_DAYTIME:
+            currentState = STATE_NS_GREEN;
+            break;
+
+        case MODE_HIGH_TRAFFIC:
+            currentState = STATE_N_PRIORITY_START;
+            break;
+
+        case MODE_NIGHT:
+            currentState = STATE_NIGHT_FLASH_ON;
+            break;
+
+        case MODE_EMERGENCY:
+            currentState = STATE_EMERGENCY_ALL_RED;
+            break;
+    }
+
+    // Reset state timer for new state
+    stateTimer = getStateDuration(currentState);
+    stateExpired = false;
+}
+
+// ============================================================================
+// SHIFT REGISTER CONTROL - FIXED FOR C89 COMPILER
+// ============================================================================
+
+void shiftOut32bits(uint8_t *data) {
+    int16_t byte_idx, bit_idx;  // Declared as 16-bit to avoid ULP warning and infinite loop
+
+    // Lower latch to prepare for new data
+    P2OUT &= ~LATCH_CLK_PIN;
+    __delay_cycles(1);
+
+    // Shift out 32 bits (4 bytes), MSB first
+    // Start from byte[3] (U4) down to byte[0] (U1)
+    for (byte_idx = 3; byte_idx >= 0; byte_idx--) {
+        for (bit_idx = 7; bit_idx >= 0; bit_idx--) {
+            // Set data line
+            if (data[byte_idx] & (1 << bit_idx)) {
+                P2OUT |= DATA_PIN;
+            } else {
+                P2OUT &= ~DATA_PIN;
             }
 
-            if(leaderDetectedC){
-                if(captureindexC < CaptureBufferSize){
-                    CaptureBufferC[captureindexC++] = durationC;
-                }
-                if(captureindexC == totalTimings){
-                    framecompleteC = 1;
-                    captureindexC = 0;
-                    leaderDetectedC = 0;
-                    }
-                }
+            // Pulse shift clock
+            P2OUT |= SHIFT_CLK_PIN;
+            __delay_cycles(1);
+            P2OUT &= ~SHIFT_CLK_PIN;
+            __delay_cycles(1);
+        }
+    }
+
+    // Raise latch to update all outputs simultaneously
+    P2OUT |= LATCH_CLK_PIN;
+    __delay_cycles(1);
+    P2OUT &= ~LATCH_CLK_PIN;
+}
+
+// ============================================================================
+// INTERRUPT SERVICE ROUTINES
+// ============================================================================
+
+// Timer A0 interrupt - 1ms tick
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A0_ISR(void) {
+    systemTick++;
+
+    // Decrement state timer
+    if (stateTimer > 0) {
+        stateTimer--;
+        if (stateTimer == 0) {
+            stateExpired = true;
+            __bic_SR_register_on_exit(LPM0_bits);  // Wake up main loop
         }
     }
 }
 
-/*
-Notes:
--Look more into unsigned subtraction to account for wrapping that may occur when timer is in continuous mode
--TimerA_CCR0 Has the highest priority so this is something that we should take into account as for what light it will correspond to
--Interrupt vector register TAxIV is used to determine which flag requested an interrupt
--Will need to transition to structure logic rather than just renaming with a,b,c etc.
-*/
+// Port 3 interrupt - Mode button presses
+#pragma vector=PORT3_VECTOR
+__interrupt void Port_3_ISR(void) {
+    // Check which button caused interrupt
+    if (P3IFG & (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT)) {
+        // Debounce by clearing flag and waking up main loop
+        // Main loop will check button state
+        P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
+        __bic_SR_register_on_exit(LPM0_bits);  // Wake up main loop
+    }
+
+    // Clear all Port 3 interrupt flags
+    P3IFG = 0;
+}
