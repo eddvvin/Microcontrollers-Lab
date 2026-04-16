@@ -1,209 +1,589 @@
-#ifndef TRAFFIC_STATES_H
-#define TRAFFIC_STATES_H
+#include "traffic_states.h"
+#include <string.h>
 
-#include <stdint.h>
-#include <stdbool.h>
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
-// Northbound signals
-#define NS_MAIN_RED              0
-#define NS_MAIN_YELLOW           1
-#define NS_MAIN_GREEN            2
-#define N_LEFT_RED               3
-#define N_LEFT_YELLOW_BLINK      4
-#define N_LEFT_YELLOW_STEADY     5
-#define N_LEFT_GREEN_ARROW       6
-#define S_LEFT_RED               7
+void initLEDState(LEDState *state) {
+    memset(state->byte, 0, 4);
+}
 
-// Southbound signals
-#define S_LEFT_YELLOW_BLINK      8   // FYA
-#define S_LEFT_YELLOW_STEADY     9
-#define S_LEFT_GREEN_ARROW      10
-#define S_RIGHT_RED             11
-#define S_RIGHT_YELLOW          12
-#define S_RIGHT_GREEN_BALL      13   // Permissive
-#define S_RIGHT_GREEN_ARROW     14   // Protected
-#define W_THRU_RED              15
+void clearAllLEDs(LEDState *state) {
+    memset(state->byte, 0, 4);
+}
 
-// Westbound & Eastbound Through
-#define W_THRU_YELLOW           16
-#define W_THRU_GREEN            17
-#define W_RIGHT_RED             18
-#define W_RIGHT_YELLOW          19
-#define W_RIGHT_GREEN_BALL      20   // Permissive
-#define W_RIGHT_GREEN_ARROW     21   // Protected
-#define E_LEFT_RED              22
-#define E_LEFT_YELLOW           23
+void setAllRed(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-// Eastbound through + spares
-#define E_LEFT_GREEN_ARROW      24
-#define E_THRU_RED              25
-#define E_THRU_YELLOW           26
-#define E_THRU_GREEN            27
-#define SPARE_LED_1             28
-#define SPARE_LED_2             29
-#define SPARE_LED_3             30
+void setAllYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_YELLOW, true);
+    setLED(state, N_THRU_YELLOW, true);
+    setLED(state, S_COMBO_YELLOW, true);
+    setLED(state, S_THRU_YELLOW, true);
+    setLED(state, S_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_YELLOW, true);
+    setLED(state, W_RIGHT_YELLOW, true);
+    setLED(state, E_THRU_LEFT_YELLOW, true);
+    setLED(state, E_THRU_RIGHT_YELLOW, true);
+}
 
-// State numbering
-typedef enum {
-    //Normal daytime states(0-17)
-    STATE_UNIV_GREEN = 0,
-    STATE_UNIV_YELLOW,
-    STATE_ALL_RED_1,
-    STATE_N_LEFT_GREEN,
-    STATE_N_LEFT_YELLOW,
-    STATE_ALL_RED_2,
-    STATE_S_LEFT_GREEN,
-    STATE_S_LEFT_YELLOW,
-    STATE_ALL_RED_3,
-    STATE_WEST_GREEN,
-    STATE_WEST_YELLOW,
-    STATE_ALL_RED_4,                 // Split-phase gap
-    STATE_EAST_THRU_GREEN,
-    STATE_EAST_THRU_YELLOW,
-    STATE_ALL_RED_5,
-    STATE_E_LEFT_GREEN,
-    STATE_E_LEFT_YELLOW,
-    STATE_ALL_RED_6,
+void setLED(LEDState *state, uint8_t ledNumber, bool on) {
+    uint8_t byteIndex;
+    uint8_t bitIndex;
 
-    // High traffic states(18-36)
-    STATE_NORTH_PRIORITY = 18,
-    STATE_N_ARROW_ENDING,
-    STATE_N_THRU_BONUS,
-    STATE_N_THRU_YELLOW,
-    STATE_ALL_RED_HT_1,
-    STATE_SOUTH_GREEN_HT,
-    STATE_SOUTH_YELLOW_HT,
-    STATE_ALL_RED_HT_2,
-    STATE_S_LEFT_GREEN_HT,
-    STATE_S_LEFT_YELLOW_HT,
-    STATE_ALL_RED_HT_3,
-    STATE_WEST_GREEN_HT,
-    STATE_WEST_YELLOW_HT,
-    STATE_ALL_RED_HT_4,
-    STATE_EAST_THRU_GREEN_HT,
-    STATE_EAST_THRU_YELLOW_HT,
-    STATE_ALL_RED_HT_5,
-    STATE_E_LEFT_GREEN_HT,
-    STATE_E_LEFT_YELLOW_HT,
-    
-    //night mode states(37-38)
-    STATE_NIGHT_OFF = 37,
-    STATE_NIGHT_ON,
+    if (ledNumber >= 32) return;
 
+    byteIndex = ledNumber / 8;
+    bitIndex  = ledNumber % 8;
 
-    // Emergency override states(39-42)
-    STATE_EMERG_WARNING = 39,
-    STATE_EMERG_HOLD,
-    STATE_EMERG_CLEARING,
-    STATE_EMERG_RETURN,
-    
-    STATE_COUNT = 43
-} TrafficState;
+    if (on) {
+        state->byte[byteIndex] |=  (1 << bitIndex);
+    } else {
+        state->byte[byteIndex] &= ~(1 << bitIndex);
+    }
+}
 
-// Operating modes
-typedef enum {
-    MODE_DAYTIME = 0,
-    MODE_HIGH_TRAFFIC,
-    MODE_NIGHT,
-    MODE_EMERGENCY
-} OperatingMode;
+bool getLED(LEDState *state, uint8_t ledNumber) {
+    uint8_t byteIndex;
+    uint8_t bitIndex;
 
-// State timing (milliseconds)
-#define TIME_UNIV_GREEN         20000
-#define TIME_N_LEFT_GREEN       12000
-#define TIME_S_LEFT_GREEN       12000
-#define TIME_WEST_GREEN         15000
-#define TIME_EAST_THRU_GREEN    15000
-#define TIME_E_LEFT_GREEN       8000
+    if (ledNumber >= 32) return false;
 
-#define TIME_YELLOW             4000
-#define TIME_YELLOW_ARROW       3000
-#define TIME_ALL_RED            2000
+    byteIndex = ledNumber / 8;
+    bitIndex  = ledNumber % 8;
 
-#define TIME_N_PRIORITY         30000
-#define TIME_N_ARROW_END        2000
-#define TIME_N_THRU_BONUS       8000
-#define TIME_N_THRU_YELLOW_HT   4000
-#define TIME_SOUTH_GREEN_HT     25000
-#define TIME_S_LEFT_GREEN_HT    10000
-#define TIME_WEST_GREEN_HT      8000
-#define TIME_EAST_THRU_HT       8000
+    return (state->byte[byteIndex] & (1 << bitIndex)) != 0;
+}
 
-#define TIME_NIGHT_FLASH        1000
+// ============================================================================
+// DAYTIME MODE STATES (0-18)
+// ============================================================================
 
-#define TIME_EMERG_WARNING      2000
-#define TIME_EMERG_HOLD_MIN     4000
-#define TIME_EMERG_CLEARING     2000
-#define TIME_EMERG_RETURN       1500
+void setState_0_NSGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_GREEN, true);
+    setLED(state, N_THRU_GREEN, true);
+    setLED(state, S_COMBO_GREEN, true);
+    setLED(state, S_THRU_GREEN, true);
+    setLED(state, S_RIGHT_GREEN_BALL, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-// Hardware representation: 4 bytes for 4 shift register chips
-typedef struct {
-    uint8_t byte[4];
-} LEDState;
+void setState_1_NSYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_YELLOW, true);
+    setLED(state, N_THRU_YELLOW, true);
+    setLED(state, S_COMBO_YELLOW, true);
+    setLED(state, S_THRU_YELLOW, true);
+    setLED(state, S_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-void initLEDState(LEDState *state);
-void clearAllLEDs(LEDState *state);
-void setAllRed(LEDState *state);
-void setAllYellow(LEDState *state);
+void setState_2_AllRed1(LEDState *state)  { setAllRed(state); }
 
-void setLED(LEDState *state, uint8_t ledNumber, bool on);
-bool getLED(LEDState *state, uint8_t ledNumber);
+void setState_3_NLeftGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_LEFT_GREEN_ARROW, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-// Daytime Normal States (0-17)
-void setState_0_UnivGreen(LEDState *state);
-void setState_1_UnivYellow(LEDState *state);
-void setState_2_AllRed1(LEDState *state);
-void setState_3_NLeftGreen(LEDState *state);
-void setState_4_NLeftYellow(LEDState *state);
-void setState_5_AllRed2(LEDState *state);
-void setState_6_SLeftGreen(LEDState *state);
-void setState_7_SLeftYellow(LEDState *state);
-void setState_8_AllRed3(LEDState *state);
-void setState_9_WestGreen(LEDState *state);
-void setState_10_WestYellow(LEDState *state);
-void setState_11_AllRed4(LEDState *state);
-void setState_12_EastThruGreen(LEDState *state);
-void setState_13_EastThruYellow(LEDState *state);
-void setState_14_AllRed5(LEDState *state);
-void setState_15_ELeftGreen(LEDState *state);
-void setState_16_ELeftYellow(LEDState *state);
-void setState_17_AllRed6(LEDState *state);
+void setState_4_NLeftYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_YELLOW, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-// High Traffic States (18-36)
-void setState_18_NorthPriority(LEDState *state);
-void setState_19_NArrowEnding(LEDState *state);
-void setState_20_NThruBonus(LEDState *state);
-void setState_21_NThruYellow(LEDState *state);
-void setState_22_AllRedHT1(LEDState *state);
-void setState_23_SouthGreenHT(LEDState *state);
-void setState_24_SouthYellowHT(LEDState *state);
-void setState_25_AllRedHT2(LEDState *state);
-void setState_26_SLeftGreenHT(LEDState *state);
-void setState_27_SLeftYellowHT(LEDState *state);
-void setState_28_AllRedHT3(LEDState *state);
-void setState_29_WestGreenHT(LEDState *state);
-void setState_30_WestYellowHT(LEDState *state);
-void setState_31_AllRedHT4(LEDState *state);
-void setState_32_EastThruGreenHT(LEDState *state);
-void setState_33_EastThruYellowHT(LEDState *state);
-void setState_34_AllRedHT5(LEDState *state);
-void setState_35_ELeftGreenHT(LEDState *state);
-void setState_36_ELeftYellowHT(LEDState *state);
+void setState_5_AllRed2(LEDState *state)  { setAllRed(state); }
 
-// Night Mode States (37-38)
-void setState_37_NightOff(LEDState *state);
-void setState_38_NightOn(LEDState *state);
+void setState_6_SLeftGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, S_LEFT_GREEN_ARROW, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-// Emergency Override States (39-42)
-void setState_39_EmergWarning(LEDState *state);
-void setState_40_EmergHold(LEDState *state);
-void setState_41_EmergClearing(LEDState *state);
-void setState_42_EmergReturn(LEDState *state);
+void setState_7_SLeftYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, S_COMBO_YELLOW, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
 
-void executeState(LEDState *state, TrafficState currentState);
-TrafficState getNextState(TrafficState currentState, OperatingMode mode, 
-                         bool vehicleNorthLeft, bool vehicleSouthLeft, 
-                         bool vehicleEastLeft, bool emergencyButton);
-uint32_t getStateDuration(TrafficState state);
+void setState_8_AllRed3(LEDState *state)  { setAllRed(state); }
 
-#endif 
+void setState_9_WThruGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_THRU_GREEN, true);
+    setLED(state, W_RIGHT_GREEN_BALL, true);
+    setLED(state, E_THRU_LEFT_RED, true);     // East RED - CRITICAL
+    setLED(state, E_THRU_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_10_WThruYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_THRU_YELLOW, true);
+    setLED(state, W_RIGHT_YELLOW, true);
+    setLED(state, E_THRU_LEFT_RED, true);     // East RED - CRITICAL
+    setLED(state, E_THRU_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_11_AllRed4(LEDState *state)  { setAllRed(state); }
+
+void setState_12_EThruGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, E_THRU_LEFT_GREEN, true);
+    setLED(state, E_THRU_RIGHT_GREEN, true);
+    setLED(state, W_THRU_RED, true);          // West RED - CRITICAL
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_13_EThruYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, E_THRU_LEFT_YELLOW, true);
+    setLED(state, E_THRU_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);          // West RED - CRITICAL
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_14_AllRed5(LEDState *state)  { setAllRed(state); }
+
+void setState_15_WRightGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_RIGHT_GREEN_ARROW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_16_WRightYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_17_AllRed6(LEDState *state)     { setAllRed(state); }
+void setState_18_ReturnStart(LEDState *state)  { setAllRed(state); }
+
+// ============================================================================
+// HIGH TRAFFIC MODE STATES (19-35)
+// Sequence: N solo (10s) -> S left during N (8s) -> Both green (25s) ->
+//           N left during S (8s) -> Both yellow (3s) -> All red -> E/W split
+// ============================================================================
+
+void setState_19_NPriorityStart(LEDState *state) { setAllRed(state); }
+
+// State 20: North solo green - South not yet active
+void setState_20_NSoloGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_GREEN, true);
+    setLED(state, N_THRU_GREEN, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+// State 21: South left arrow while North still green
+void setState_21_SLeftDuringN(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_GREEN, true);
+    setLED(state, N_THRU_GREEN, true);
+    setLED(state, S_LEFT_GREEN_ARROW, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+// State 22: Both North and South green together
+void setState_22_NSBothGreen(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_GREEN, true);
+    setLED(state, N_THRU_GREEN, true);
+    setLED(state, S_COMBO_GREEN, true);
+    setLED(state, S_THRU_GREEN, true);
+    setLED(state, S_RIGHT_GREEN_BALL, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+// State 23: North left arrow while South still green
+void setState_23_NLeftDuringS(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_LEFT_GREEN_ARROW, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_GREEN, true);
+    setLED(state, S_THRU_GREEN, true);
+    setLED(state, S_RIGHT_GREEN_BALL, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+// State 24: Both North and South yellow together
+void setState_24_NSHTYellow(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_YELLOW, true);
+    setLED(state, N_THRU_YELLOW, true);
+    setLED(state, S_COMBO_YELLOW, true);
+    setLED(state, S_THRU_YELLOW, true);
+    setLED(state, S_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_25_AllRedHT1(LEDState *state) { setAllRed(state); }
+
+// State 26: West through green - split phase
+void setState_26_WThruGreenHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_THRU_GREEN, true);
+    setLED(state, W_RIGHT_GREEN_BALL, true);
+    setLED(state, E_THRU_LEFT_RED, true);     // East RED - CRITICAL
+    setLED(state, E_THRU_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_27_WThruYellowHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_THRU_YELLOW, true);
+    setLED(state, W_RIGHT_YELLOW, true);
+    setLED(state, E_THRU_LEFT_RED, true);     // East RED - CRITICAL
+    setLED(state, E_THRU_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_28_AllRedHT2(LEDState *state) { setAllRed(state); }
+
+// State 29: East through green - split phase
+void setState_29_EThruGreenHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, E_THRU_LEFT_GREEN, true);
+    setLED(state, E_THRU_RIGHT_GREEN, true);
+    setLED(state, W_THRU_RED, true);          // West RED - CRITICAL
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_30_EThruYellowHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, E_THRU_LEFT_YELLOW, true);
+    setLED(state, E_THRU_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);          // West RED - CRITICAL
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+}
+
+void setState_31_AllRedHT3(LEDState *state) { setAllRed(state); }
+
+void setState_32_WRightGreenHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_RIGHT_GREEN_ARROW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_33_WRightYellowHT(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, W_RIGHT_YELLOW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, N_COMBO_RED, true);
+    setLED(state, N_THRU_RED, true);
+    setLED(state, S_COMBO_RED, true);
+    setLED(state, S_THRU_RED, true);
+    setLED(state, S_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_34_AllRedHT4(LEDState *state)  { setAllRed(state); }
+void setState_35_ReturnHT(LEDState *state)    { setAllRed(state); }
+
+// ============================================================================
+// NIGHT MODE STATES (38-40)
+// ============================================================================
+
+void setState_38_NightFlashOn(LEDState *state) {
+    clearAllLEDs(state);
+    setLED(state, N_COMBO_YELLOW, true);
+    setLED(state, N_THRU_YELLOW, true);
+    setLED(state, S_COMBO_YELLOW, true);
+    setLED(state, S_THRU_YELLOW, true);
+    setLED(state, W_THRU_RED, true);
+    setLED(state, W_RIGHT_RED, true);
+    setLED(state, E_THRU_LEFT_RED, true);
+    setLED(state, E_THRU_RIGHT_RED, true);
+}
+
+void setState_39_NightFlashOff(LEDState *state)   { clearAllLEDs(state); }
+void setState_40_NightTransition(LEDState *state)  { setAllRed(state); }
+
+// ============================================================================
+// EMERGENCY MODE STATES (41-42)
+// ============================================================================
+
+void setState_41_EmergencyAllRed(LEDState *state) { setAllRed(state); }
+void setState_42_EmergencyHold(LEDState *state)   { setAllRed(state); }
+
+// ============================================================================
+// STATE EXECUTION
+// ============================================================================
+
+void executeState(LEDState *state, TrafficState currentState) {
+    switch (currentState) {
+        // Daytime (0-18)
+        case STATE_NS_GREEN:          setState_0_NSGreen(state);       break;
+        case STATE_NS_YELLOW:         setState_1_NSYellow(state);      break;
+        case STATE_ALL_RED_1:         setState_2_AllRed1(state);       break;
+        case STATE_N_LEFT_GREEN:      setState_3_NLeftGreen(state);    break;
+        case STATE_N_LEFT_YELLOW:     setState_4_NLeftYellow(state);   break;
+        case STATE_ALL_RED_2:         setState_5_AllRed2(state);       break;
+        case STATE_S_LEFT_GREEN:      setState_6_SLeftGreen(state);    break;
+        case STATE_S_LEFT_YELLOW:     setState_7_SLeftYellow(state);   break;
+        case STATE_ALL_RED_3:         setState_8_AllRed3(state);       break;
+        case STATE_W_THRU_GREEN:      setState_9_WThruGreen(state);    break;
+        case STATE_W_THRU_YELLOW:     setState_10_WThruYellow(state);  break;
+        case STATE_ALL_RED_4:         setState_11_AllRed4(state);      break;
+        case STATE_E_THRU_GREEN:      setState_12_EThruGreen(state);   break;
+        case STATE_E_THRU_YELLOW:     setState_13_EThruYellow(state);  break;
+        case STATE_ALL_RED_5:         setState_14_AllRed5(state);      break;
+        case STATE_W_RIGHT_GREEN:     setState_15_WRightGreen(state);  break;
+        case STATE_W_RIGHT_YELLOW:    setState_16_WRightYellow(state); break;
+        case STATE_ALL_RED_6:         setState_17_AllRed6(state);      break;
+        case STATE_RETURN_TO_START:   setState_18_ReturnStart(state);  break;
+
+        // High Traffic (19-35)
+        case STATE_N_PRIORITY_START:  setState_19_NPriorityStart(state); break;
+        case STATE_N_SOLO_GREEN:      setState_20_NSoloGreen(state);     break;
+        case STATE_S_LEFT_DURING_N:   setState_21_SLeftDuringN(state);   break;
+        case STATE_NS_BOTH_GREEN:     setState_22_NSBothGreen(state);    break;
+        case STATE_N_LEFT_DURING_S:   setState_23_NLeftDuringS(state);   break;
+        case STATE_NS_HT_YELLOW:      setState_24_NSHTYellow(state);     break;
+        case STATE_ALL_RED_HT_1:      setState_25_AllRedHT1(state);      break;
+        case STATE_W_THRU_GREEN_HT:   setState_26_WThruGreenHT(state);   break;
+        case STATE_W_THRU_YELLOW_HT:  setState_27_WThruYellowHT(state);  break;
+        case STATE_ALL_RED_HT_2:      setState_28_AllRedHT2(state);      break;
+        case STATE_E_THRU_GREEN_HT:   setState_29_EThruGreenHT(state);   break;
+        case STATE_E_THRU_YELLOW_HT:  setState_30_EThruYellowHT(state);  break;
+        case STATE_ALL_RED_HT_3:      setState_31_AllRedHT3(state);      break;
+        case STATE_W_RIGHT_GREEN_HT:  setState_32_WRightGreenHT(state);  break;
+        case STATE_W_RIGHT_YELLOW_HT: setState_33_WRightYellowHT(state); break;
+        case STATE_ALL_RED_HT_4:      setState_34_AllRedHT4(state);      break;
+        case STATE_RETURN_HT:         setState_35_ReturnHT(state);        break;
+
+        // Night (38-40)
+        case STATE_NIGHT_FLASH_ON:    setState_38_NightFlashOn(state);    break;
+        case STATE_NIGHT_FLASH_OFF:   setState_39_NightFlashOff(state);   break;
+        case STATE_NIGHT_TRANSITION:  setState_40_NightTransition(state); break;
+
+        // Emergency (41-42)
+        case STATE_EMERGENCY_ALL_RED: setState_41_EmergencyAllRed(state); break;
+        case STATE_EMERGENCY_HOLD:    setState_42_EmergencyHold(state);   break;
+
+        default: setAllRed(state); break;
+    }
+}
+
+// ============================================================================
+// STATE DURATION
+// ============================================================================
+
+uint32_t getStateDuration(TrafficState state) {
+    switch (state) {
+        // Daytime
+        case STATE_NS_GREEN:          return TIME_NS_GREEN;
+        case STATE_NS_YELLOW:         return TIME_YELLOW;
+        case STATE_ALL_RED_1:         return TIME_ALL_RED;
+        case STATE_N_LEFT_GREEN:      return TIME_N_LEFT_GREEN;
+        case STATE_N_LEFT_YELLOW:     return TIME_YELLOW;
+        case STATE_ALL_RED_2:         return TIME_ALL_RED;
+        case STATE_S_LEFT_GREEN:      return TIME_S_LEFT_GREEN;
+        case STATE_S_LEFT_YELLOW:     return TIME_YELLOW;
+        case STATE_ALL_RED_3:         return TIME_ALL_RED;
+        case STATE_W_THRU_GREEN:      return TIME_W_THRU_GREEN;
+        case STATE_W_THRU_YELLOW:     return TIME_YELLOW;
+        case STATE_ALL_RED_4:         return TIME_ALL_RED;
+        case STATE_E_THRU_GREEN:      return TIME_E_THRU_GREEN;
+        case STATE_E_THRU_YELLOW:     return TIME_YELLOW;
+        case STATE_ALL_RED_5:         return TIME_ALL_RED;
+        case STATE_W_RIGHT_GREEN:     return TIME_W_RIGHT_GREEN;
+        case STATE_W_RIGHT_YELLOW:    return TIME_YELLOW;
+        case STATE_ALL_RED_6:         return TIME_ALL_RED;
+        case STATE_RETURN_TO_START:   return TIME_ALL_RED;
+
+        // High Traffic
+        case STATE_N_PRIORITY_START:  return TIME_ALL_RED;
+        case STATE_N_SOLO_GREEN:      return TIME_N_SOLO_GREEN;
+        case STATE_S_LEFT_DURING_N:   return TIME_S_LEFT_DURING_N;
+        case STATE_NS_BOTH_GREEN:     return TIME_NS_BOTH_GREEN;
+        case STATE_N_LEFT_DURING_S:   return TIME_N_LEFT_DURING_S;
+        case STATE_NS_HT_YELLOW:      return TIME_YELLOW;
+        case STATE_ALL_RED_HT_1:      return TIME_ALL_RED;
+        case STATE_W_THRU_GREEN_HT:   return TIME_W_THRU_GREEN_HT;
+        case STATE_W_THRU_YELLOW_HT:  return TIME_YELLOW;
+        case STATE_ALL_RED_HT_2:      return TIME_ALL_RED;
+        case STATE_E_THRU_GREEN_HT:   return TIME_E_THRU_GREEN_HT;
+        case STATE_E_THRU_YELLOW_HT:  return TIME_YELLOW;
+        case STATE_ALL_RED_HT_3:      return TIME_ALL_RED;
+        case STATE_W_RIGHT_GREEN_HT:  return TIME_W_RIGHT_GREEN_HT;
+        case STATE_W_RIGHT_YELLOW_HT: return TIME_YELLOW;
+        case STATE_ALL_RED_HT_4:      return TIME_ALL_RED;
+        case STATE_RETURN_HT:         return TIME_ALL_RED;
+
+        // Night
+        case STATE_NIGHT_FLASH_ON:    return TIME_NIGHT_FLASH_ON;
+        case STATE_NIGHT_FLASH_OFF:   return TIME_NIGHT_FLASH_OFF;
+        case STATE_NIGHT_TRANSITION:  return TIME_ALL_RED;
+
+        // Emergency
+        case STATE_EMERGENCY_ALL_RED: return TIME_ALL_RED;
+        case STATE_EMERGENCY_HOLD:    return TIME_EMERGENCY_HOLD;
+
+        default: return TIME_ALL_RED;
+    }
+}
+
+// ============================================================================
+// NEXT STATE LOGIC
+// ============================================================================
+
+TrafficState getNextState(TrafficState currentState, OperatingMode mode) {
+    if (mode == MODE_DAYTIME) {
+        if (currentState < STATE_RETURN_TO_START) {
+            return (TrafficState)(currentState + 1);
+        } else {
+            return STATE_NS_GREEN;
+        }
+    }
+    else if (mode == MODE_HIGH_TRAFFIC) {
+        if (currentState >= STATE_N_PRIORITY_START && currentState < STATE_RETURN_HT) {
+            return (TrafficState)(currentState + 1);
+        } else {
+            return STATE_N_PRIORITY_START;
+        }
+    }
+    else if (mode == MODE_NIGHT) {
+        if (currentState == STATE_NIGHT_FLASH_ON) {
+            return STATE_NIGHT_FLASH_OFF;
+        } else {
+            return STATE_NIGHT_FLASH_ON;
+        }
+    }
+    else if (mode == MODE_EMERGENCY) {
+        return STATE_EMERGENCY_HOLD;
+    }
+
+    return STATE_NS_GREEN;
+}
