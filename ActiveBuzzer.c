@@ -8,7 +8,7 @@
 #define NUM_DEVICES 4
 
 // ---------- Buzzer config ----------
-// Active buzzer on P9.2 (J1 pin 2). + to P9.2, - to GND.
+// Active buzzer on P9.2
 #define BUZZER_BIT       BIT2
 #define BUZZER_ON()      (P9OUT |=  BUZZER_BIT)
 #define BUZZER_OFF()     (P9OUT &= ~BUZZER_BIT)
@@ -238,7 +238,7 @@ void start_walk(uint8_t device){
 
 int main(void){
     WDTCTL = WDTPW | WDTHOLD;
-    PM5CTL0 &= ~LOCKLPM5;       // unlock GPIO (FR6989 boots locked)
+    PM5CTL0 &= ~LOCKLPM5;
 
     pinInit();
     ledmatrixInit();
