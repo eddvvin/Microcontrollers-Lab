@@ -2,6 +2,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "traffic_states.h"
+#include <msp430fr6989.h>
+#include <driverlib.h>
+//can use 8.6 or 8.5 for the clk pin of the matrix and instead switch back the ccr0 pin back to p1.5
+//For testing left and south demand
+#define NORTH_LEFT_PIN   BIT4   // P2.6
+#define SOUTH_LEFT_PIN   BIT5   // P2.5
+void initLeftTurnSensors(void);
+
+//P1.5 NEEDS TO BE CHANGED FOR THE LEDMATRIX AS WELL AS THE IR RECEIVER
 
 // ============================================================================
 // PIN DEFINITIONS - SHIFT REGISTER (Traffic LEDs)
@@ -15,16 +24,16 @@
 // ============================================================================
 #define MAT_LATCH_PIN   BIT6    // P9.6 - Matrix latch
 #define MAT_DATA_PIN    BIT2    // P4.2 - Matrix data
-#define MAT_CLK_PIN     BIT5    // P1.5 - Matrix clock
+#define MAT_CLK_PIN     BIT6    // P8.6 - Matrix clock
 
 // ============================================================================
 // PIN DEFINITIONS - BUTTONS - Active LOW with pull-ups
 // ============================================================================
 
 // No longer using these buttons
-//#define BTN_MODE_DAYTIME        BIT0    // P3.0
-//#define BTN_MODE_HIGH_TRAFFIC   BIT1    // P3.1
-//#define BTN_MODE_NIGHT          BIT2    // P3.2
+#define BTN_MODE_DAYTIME        BIT0    // P3.0
+#define BTN_MODE_HIGH_TRAFFIC   BIT1    // P3.1
+#define BTN_MODE_NIGHT          BIT2    // P3.2
 #define BTN_PED_NORTH           BIT3    // P3.3
 #define BTN_PED_WEST            BIT6    // P3.6
 #define BTN_PED_SOUTH           BIT0    // P4.0
@@ -55,6 +64,49 @@ typedef enum {
 } State_walking;
 
 // ============================================================================
+// IR RECEIVER DEFINITIONS
+// ============================================================================
+#define CaptureBufferSize 68
+#define totalTimings 67
+#define UpperLeader 9500
+#define LowerLeader 8500
+#define NUM_CHANNELS 4
+
+typedef struct {
+    volatile uint16_t buffer[CaptureBufferSize];
+    volatile uint16_t lastCapture;
+    volatile uint8_t frameComplete;
+    volatile uint8_t captureIndex;
+    volatile uint8_t leaderDetected;
+} IR_Channel;
+
+// =========================
+// IR REMOTE CODES
+// =========================
+
+#define IR_0            0xE916FF00
+#define IR_1            0xF30CFF00
+#define IR_2            0xE718FF00
+#define IR_3            0xA15EFF00
+#define IR_4            0xF708FF00
+#define IR_5            0xE31CFF00
+#define IR_6            0xA55AFF00
+#define IR_7            0xBD42FF00
+#define IR_8            0xAD52FF00
+#define IR_9            0xB54AFF00
+
+#define IR_VolPlus      0xB946FF00
+#define IR_VolMinus     0xEA15FF00
+#define IR_UpArrow      0xF609FF00
+#define IR_DownArrow    0xF807FF00
+#define IR_BackButton   0xBB44FF00
+#define IR_PauseButton  0xBF40FF00
+#define IR_FastFoward   0xBC43FF00
+#define IR_FuncStop     0xB847FF00
+#define IR_EQ           0xE619FF00
+#define IR_STREPT       0xF20DFF00
+
+// ============================================================================
 // GLOBAL VARIABLES - TRAFFIC SIGNAL
 // ============================================================================
 LEDState currentLEDs;
@@ -63,6 +115,13 @@ OperatingMode currentMode    = MODE_DAYTIME;
 volatile uint32_t systemTick = 0;
 volatile uint32_t stateTimer = 0;
 volatile bool stateExpired   = false;
+
+/* ============================================================================
+ * EMERGENCY SAVE/RESTORE
+ * ========================================================================= */
+volatile TrafficState savedState;
+volatile OperatingMode savedMode;
+volatile bool inEmergency;
 
 // ============================================================================
 // GLOBAL VARIABLES - PEDESTRIAN MATRICES
@@ -74,6 +133,12 @@ volatile uint8_t tick_1s = 0;
 
 // Walk request flags - set by button press, cleared after start_walk()
 volatile bool pedWalkRequest[NUM_DEVICES];
+
+// ============================================================================
+// GLOBAL VARIABLES - IR RECEIVERS
+// ============================================================================
+IR_Channel ir[NUM_CHANNELS];
+volatile uint32_t result[NUM_CHANNELS];
 
 // ============================================================================
 // PEDESTRIAN IMAGE TABLE
@@ -113,7 +178,7 @@ void System_init(void);
 void GPIO_init(void);
 void Timer_init(void);
 void shiftOut32bits(uint8_t *data);
-OperatingMode checkModeButtons(void);
+OperatingMode checkModeButtons(volatile uint32_t *result);
 void handleModeChange(OperatingMode newMode);
 void checkPedButtons(void);
 void triggerPedWalk(TrafficState state);
@@ -138,6 +203,17 @@ void start_walk(uint8_t device, uint8_t walkTime);
 void Timer1_init(void);
 
 // ============================================================================
+// FUNCTION PROTOTYPES - IR RECEIVER
+// ============================================================================
+uint32_t decodeNEC(volatile uint16_t *buffer);
+void handleCapture(IR_Channel *ch, uint16_t currentcapture);
+void initTimerA0Capture(void);
+void initTimerA1Capture(void);
+void initTimerAContinuousMode(void);
+void initPins(void);
+void InitIRChannels(void);
+void TimerEnableCCRI(void);
+// ============================================================================
 // MAIN FUNCTION
 // ============================================================================
 int main(void) {
@@ -152,6 +228,7 @@ int main(void) {
 
     System_init();
     GPIO_init();
+    initLeftTurnSensors();
     Timer_init();
     matrixPinInit();
     ledMatrixInit();
@@ -172,6 +249,12 @@ int main(void) {
     // Display initial stop hand on all matrices
     displayPedState();
 
+    InitIRChannels();
+    initPins();
+    initTimerA0Capture();
+    initTimerA1Capture();
+    TimerEnableCCRI();
+    initTimerAContinuousMode();
     __enable_interrupt();
 
     currentState = STATE_NS_GREEN;
@@ -184,10 +267,20 @@ int main(void) {
 
     // Main loop
     while (1) {
+        for(unsigned int i = 0; i < NUM_CHANNELS; i++){
+            if(ir[i].frameComplete){
+                result[i] = decodeNEC(ir[i].buffer);
+
+                ir[i].frameComplete = 0;
+                ir[i].leaderDetected = 0;
+            }
+        }
+
         ledsNeedUpdate = false;
 
         // --- Mode button check ---
-        requestedMode = checkModeButtons();
+        requestedMode = checkModeButtons(result);
+        for(unsigned int i = 0; i < NUM_CHANNELS; i++) result[i] = 0;
         if (requestedMode != currentMode) {
             handleModeChange(requestedMode);
             ledsNeedUpdate = true;
@@ -199,33 +292,44 @@ int main(void) {
 
         // --- State timer expiry ---
         if (stateExpired) {
-            stateExpired = false;
+        stateExpired = false;
 
-            currentState = getNextState(currentState, currentMode);
-
-            // Safety wraparound checks
-            if (currentMode == MODE_DAYTIME) {
-                if (currentState > STATE_RETURN_TO_START) {
-                    currentState = STATE_NS_GREEN;
+        if (inEmergency) {
+                if (currentState == STATE_EMERGENCY_ALL_RED) {
+                    // First emergency state expired — advance to hold normally
+                    currentState = STATE_EMERGENCY_HOLD;
+                    stateTimer   = getStateDuration(STATE_EMERGENCY_HOLD);
+                    ledsNeedUpdate = true;
+                }
+                else {
+                    // EMERGENCY_HOLD expired — restore saved position
+                    inEmergency  = false;
+                    currentMode  = savedMode;
+                    currentState = savedState;
+                    stateTimer = getStateDuration(savedState);
+                    ledsNeedUpdate = true;
                 }
             }
-            else if (currentMode == MODE_HIGH_TRAFFIC) {
-                if (currentState < STATE_N_PRIORITY_START ||
-                    currentState > STATE_RETURN_HT) {
-                    currentState = STATE_N_PRIORITY_START;
+            else {
+                currentState = getNextState(currentState, currentMode);
+
+                // Safety wraparound checks (unchanged)
+                if (currentMode == MODE_DAYTIME) {
+                    if (currentState > STATE_RETURN_TO_START)
+                        currentState = STATE_NS_GREEN;
                 }
+                else if (currentMode == MODE_HIGH_TRAFFIC) {
+                    if (currentState < STATE_N_PRIORITY_START ||
+                        currentState > STATE_RETURN_HT)
+                        currentState = STATE_N_PRIORITY_START;
+                }
+                // Night: getNextState handles toggle
+                // Emergency: handled above
+
+                stateTimer = getStateDuration(currentState);
+                triggerPedWalk(currentState);
+                ledsNeedUpdate = true;
             }
-            else if (currentMode == MODE_EMERGENCY) {
-                currentState = STATE_EMERGENCY_HOLD;
-            }
-            // Night mode: getNextState handles toggle correctly
-
-            stateTimer = getStateDuration(currentState);
-
-            // Auto-trigger pedestrian walk on vehicle green transitions
-            triggerPedWalk(currentState);
-
-            ledsNeedUpdate = true;
         }
 
         // Only shift out to LEDs when state actually changed
@@ -426,11 +530,11 @@ void GPIO_init(void) {
 }
 
 void Timer_init(void) {
-    // Timer_A0: 1ms tick for traffic state machine
+    // Timer_B0: 1ms tick for traffic state machine
     // SMCLK (1MHz) / 8 = 125kHz, CCR0=125 -> 1kHz -> 1ms
-    TA0CTL   = TASSEL__SMCLK | MC__UP | ID__8;
-    TA0CCR0  = 125;
-    TA0CCTL0 = CCIE;
+    TB0CTL   = TASSEL__SMCLK | MC__UP | ID__8;
+    TB0CCR0  = 125;
+    TB0CCTL0 = CCIE;
 }
 
 void Timer1_init(void) {
@@ -445,24 +549,52 @@ void Timer1_init(void) {
 // MODE CONTROL
 // ============================================================================
 
-OperatingMode checkModeButtons(void) {
-    uint8_t buttonState = P3IN;
+OperatingMode checkModeButtons(volatile uint32_t *result){
+    // Pass 1: check emergency only
+    for (int i = 0; i < NUM_CHANNELS; i++){
+        if (result[i] == IR_BackButton) {
+            return MODE_EMERGENCY;
+        }
+    }
 
-    if (!(buttonState & BTN_MODE_NIGHT))             return MODE_NIGHT;
-    else if (!(buttonState & BTN_MODE_HIGH_TRAFFIC)) return MODE_HIGH_TRAFFIC;
-    else if (!(buttonState & BTN_MODE_DAYTIME))      return MODE_DAYTIME;
+    // Pass 2: last-valid-wins logic
+    OperatingMode newMode = currentMode;
 
-    return currentMode;
+    for (int i = 0; i < NUM_CHANNELS; i++){
+        if (result[i] == IR_UpArrow)         newMode = MODE_DAYTIME;
+        else if (result[i] == IR_DownArrow)  newMode = MODE_NIGHT;
+        else if (result[i] == IR_FastFoward) newMode = MODE_HIGH_TRAFFIC;
+    }
+
+    return newMode;
 }
 
 void handleModeChange(OperatingMode newMode) {
-    currentMode = newMode;
+ if (newMode == MODE_EMERGENCY) {
+        // Only enter emergency if not already in it
+        if (!inEmergency) {
+            // Save current position exactly as-is
+            savedState   = currentState;
+            savedMode    = currentMode;
+            inEmergency  = true;
+
+            currentMode  = MODE_EMERGENCY;
+            currentState = STATE_EMERGENCY_ALL_RED;
+            stateTimer   = getStateDuration(STATE_EMERGENCY_ALL_RED);
+            stateExpired = false;
+        }
+        return;
+    }
+
+    // Normal (non-emergency) mode change — clear any saved state
+    inEmergency  = false;
+    currentMode  = newMode;
 
     switch (newMode) {
-        case MODE_DAYTIME:      currentState = STATE_NS_GREEN;          break;
-        case MODE_HIGH_TRAFFIC: currentState = STATE_N_PRIORITY_START;  break;
-        case MODE_NIGHT:        currentState = STATE_NIGHT_FLASH_ON;    break;
-        case MODE_EMERGENCY:    currentState = STATE_EMERGENCY_ALL_RED; break;
+        case MODE_DAYTIME:      currentState = STATE_NS_GREEN;         break;
+        case MODE_HIGH_TRAFFIC: currentState = STATE_N_PRIORITY_START; break;
+        case MODE_NIGHT:        currentState = STATE_NIGHT_FLASH_ON;   break;
+        default: break;
     }
 
     stateTimer   = getStateDuration(currentState);
@@ -473,20 +605,20 @@ void handleModeChange(OperatingMode newMode) {
 // MATRIX PIN HELPERS
 // ============================================================================
 
-void matrixPinInit(void) {
+void  matrixPinInit(void) {
     // Latch -> P9.6
     P9OUT |=  BIT6; P9DIR |= BIT6;
     P9SEL1 &= ~BIT6; P9SEL0 &= ~BIT6;
     // Data -> P4.2
     P4OUT &= ~BIT2; P4DIR |= BIT2;
     P4SEL1 &= ~BIT2; P4SEL0 &= ~BIT2;
-    // Clock -> P1.5
-    P1OUT &= ~BIT5; P1DIR |= BIT5;
-    P1SEL1 &= ~BIT5; P1SEL0 &= ~BIT5;
+    // Clock -> P8.6
+    P8OUT &= ~BIT6; P8DIR |= BIT6;
+    P8SEL1 &= ~BIT6; P8SEL0 &= ~BIT6;
 }
 
-void matrixClockLow(void)  { P1OUT &= ~BIT5; }
-void matrixClockHigh(void) { P1OUT |=  BIT5; }
+void matrixClockLow(void)  { P8OUT &= ~BIT6; }
+void matrixClockHigh(void) { P8OUT |=  BIT6; }
 void matrixLatchLow(void)  { P9OUT &= ~BIT6; }
 void matrixLatchHigh(void) { P9OUT |=  BIT6; }
 void matrixDataLow(void)   { P4OUT &= ~BIT2; }
@@ -579,18 +711,211 @@ void shiftOut32bits(uint8_t *data) {
 }
 
 // ============================================================================
+// IR RECEIVER HELPERS
+// ============================================================================
+/*
+Pin Mapping:
+P1.5 -> TA0.CCI0A -> ir[0]
+P1.6 -> TA0.CCI1A -> ir[1]
+P1.7 -> TA0.CCI2A -> ir[2]
+P1.3 -> TA1.CCI1A -> ir[3]
+*/
+uint32_t decodeNEC(volatile uint16_t *buffer){
+    uint32_t value = 0;
+    int index = 2; // skip leader
+    for(int bit = 0; bit < 32; bit++)
+    {
+        uint16_t space = buffer[index + 1];
+
+        if(space > 1500)
+        {
+            value |= (1UL << bit);
+        }
+
+        index += 2;
+    }
+
+    return value;
+}
+
+void handleCapture(IR_Channel *ch, uint16_t currentcapture){
+    uint16_t duration = currentcapture - ch->lastCapture;
+    ch->lastCapture = currentcapture;
+
+    // Leader detection
+    if(duration > LowerLeader && duration < UpperLeader){
+        ch->leaderDetected = 1;
+        ch->captureIndex = 0;
+    }
+
+    if(ch->leaderDetected){
+        if(ch->captureIndex < CaptureBufferSize){
+            ch->buffer[ch->captureIndex++] = duration;
+        }
+
+        if(ch->captureIndex == totalTimings){
+            ch->frameComplete = 1;
+            ch->captureIndex = 0;
+            ch->leaderDetected = 0;
+        }
+    }
+}
+
+void initTimerA0Capture(void){
+    Timer_A_initCaptureModeParam capture = {0};
+
+    capture.captureMode = TIMER_A_CAPTUREMODE_RISING_AND_FALLING_EDGE;
+    capture.captureInputSelect = TIMER_A_CAPTURE_INPUTSELECT_CCIxA;
+    capture.synchronizeCaptureSource = TIMER_A_CAPTURE_SYNCHRONOUS;
+    capture.captureInterruptEnable = TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
+    capture.captureOutputMode = TIMER_A_OUTPUTMODE_OUTBITVALUE;
+
+    // CCR0
+    capture.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_0;
+    Timer_A_initCaptureMode(TIMER_A0_BASE, &capture);
+
+    // CCR1
+    capture.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_1;
+    Timer_A_initCaptureMode(TIMER_A0_BASE, &capture);
+
+    // CCR2
+    capture.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_2;
+    Timer_A_initCaptureMode(TIMER_A0_BASE, &capture);
+}
+
+void initTimerA1Capture(void){
+    Timer_A_initCaptureModeParam capture = {0};
+
+    capture.captureMode = TIMER_A_CAPTUREMODE_RISING_AND_FALLING_EDGE;
+    capture.captureInputSelect = TIMER_A_CAPTURE_INPUTSELECT_CCIxA;
+    capture.synchronizeCaptureSource = TIMER_A_CAPTURE_SYNCHRONOUS;
+    capture.captureInterruptEnable = TIMER_A_CAPTURECOMPARE_INTERRUPT_ENABLE;
+    capture.captureOutputMode = TIMER_A_OUTPUTMODE_OUTBITVALUE;
+
+    //TA1.1 = CCR1 = 4th IR receiver
+    capture.captureRegister = TIMER_A_CAPTURECOMPARE_REGISTER_1;
+    Timer_A_initCaptureMode(TIMER_A1_BASE, &capture);
+}
+
+void initTimerAContinuousMode(void){
+    Timer_A_initContinuousModeParam continuousmode = {0};
+
+    continuousmode.clockSource = TIMER_A_CLOCKSOURCE_SMCLK;
+    continuousmode.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
+    continuousmode.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
+    continuousmode.timerClear = TIMER_A_DO_CLEAR;
+    continuousmode.startTimer = true;
+
+    Timer_A_initContinuousMode(TIMER_A0_BASE, &continuousmode);
+    Timer_A_initContinuousMode(TIMER_A1_BASE, &continuousmode);
+}
+
+void initPins(void){
+    // P1.5 -> CCR0
+    P1DIR &= ~BIT5;
+    P1SEL0 |= BIT5;
+    P1SEL1 |= BIT5;
+
+    // P1.6 -> CCR1
+    P1DIR &= ~BIT6;
+    P1SEL0 |= BIT6;
+    P1SEL1 |= BIT6;
+
+    // P1.7 -> CCR2
+    P1DIR &= ~BIT7;
+    P1SEL0 |= BIT7;
+    P1SEL1 |= BIT7;
+
+    //P3.3 -> CCR
+    P3DIR &= ~BIT3;
+    P3SEL0 &= ~BIT3;
+    P3SEL1 |= BIT3;
+}
+
+void InitIRChannels(void){
+    // Initialize struct values
+    for(int i = 0; i < NUM_CHANNELS; i++){
+        ir[i].lastCapture = 0;
+        ir[i].frameComplete = 0;
+        ir[i].captureIndex = 0;
+        ir[i].leaderDetected = 0;
+        result[i] = 0;
+    }
+}
+
+void TimerEnableCCRI(void){
+    // Enable CCR interrupts
+    Timer_A_enableCaptureCompareInterrupt(TIMER_A0_BASE,
+                                          TIMER_A_CAPTURECOMPARE_REGISTER_0);
+    Timer_A_enableCaptureCompareInterrupt(TIMER_A0_BASE,
+                                          TIMER_A_CAPTURECOMPARE_REGISTER_1);
+    Timer_A_enableCaptureCompareInterrupt(TIMER_A0_BASE,
+                                          TIMER_A_CAPTURECOMPARE_REGISTER_2);
+
+    Timer_A_enableCaptureCompareInterrupt(TIMER_A1_BASE,
+        TIMER_A_CAPTURECOMPARE_REGISTER_1);
+}
+
+
+void initLeftTurnSensors(void)
+{
+    // Set as GPIO (not peripheral)
+    P2SEL0 &= ~(NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+    P2SEL1 &= ~(NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+
+    // Inputs
+    P2DIR &= ~(NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+
+    // Pull-ups (active LOW sensors)
+    P2REN |= (NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+    P2OUT |= (NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+
+    // Interrupt on falling edge
+    P2IES |= (NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+
+    // Clear flags
+    P2IFG &= ~(NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+
+    // Enable interrupts
+    P2IE  |= (NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+}
+
+// ============================================================================
 // INTERRUPT SERVICE ROUTINES
 // ============================================================================
+#pragma vector = TIMER0_A0_VECTOR
+__interrupt void TIMER0_A0_CCR0_ISR(void)
+{
+    uint16_t currentcapture =
+        Timer_A_getCaptureCompareCount(TIMER_A0_BASE,
+                                       TIMER_A_CAPTURECOMPARE_REGISTER_0);
 
-// Timer_A0 - 1ms tick (traffic signal state machine)
-#pragma vector=TIMER0_A0_VECTOR
-__interrupt void Timer_A0_ISR(void) {
-    systemTick++;
-    if (stateTimer > 0) {
-        stateTimer--;
-        if (stateTimer == 0) {
-            stateExpired = true;
-            __bic_SR_register_on_exit(LPM0_bits);
+    handleCapture(&ir[0], currentcapture);
+}
+
+#pragma vector = TIMER0_A1_VECTOR
+__interrupt void TIMER0_A1_ISR(void)
+{
+    switch(__even_in_range(TA0IV,4)){
+
+        case 2: // CCR1
+        {
+            uint16_t currentcapture =
+                Timer_A_getCaptureCompareCount(TIMER_A0_BASE,
+                                               TIMER_A_CAPTURECOMPARE_REGISTER_1);
+
+            handleCapture(&ir[1], currentcapture);
+            break;
+        }
+
+        case 4: // CCR2
+        {
+            uint16_t currentcapture =
+                Timer_A_getCaptureCompareCount(TIMER_A0_BASE,
+                                               TIMER_A_CAPTURECOMPARE_REGISTER_2);
+
+            handleCapture(&ir[2], currentcapture);
+            break;
         }
     }
 }
@@ -602,6 +927,37 @@ __interrupt void Timer_A1_ISR(void) {
     __bic_SR_register_on_exit(LPM0_bits);
 }
 
+//Timer1_A1 - IR Channel 3 
+#pragma vector = TIMER1_A1_VECTOR
+__interrupt void TIMER1_A1_ISR(void)
+{
+    switch(__even_in_range(TA1IV,2)){
+
+        case 2:
+        {
+            uint16_t current =
+                Timer_A_getCaptureCompareCount(TIMER_A1_BASE,
+                    TIMER_A_CAPTURECOMPARE_REGISTER_1);
+
+            handleCapture(&ir[3], current);
+            break;
+        }
+    }
+}
+
+// Timer_B0 - 1ms tick (traffic signal state machine)
+#pragma vector=TIMER0_B0_VECTOR
+__interrupt void Timer_B0_ISR(void) {
+    systemTick++;
+    if (stateTimer > 0) {
+        stateTimer--;
+        if (stateTimer == 0) {
+            stateExpired = true;
+            __bic_SR_register_on_exit(LPM0_bits);
+        }
+    }
+}
+
 // Port 3 - Mode button interrupts (pedestrian buttons are polled)
 #pragma vector=PORT3_VECTOR
 __interrupt void Port_3_ISR(void) {
@@ -611,3 +967,47 @@ __interrupt void Port_3_ISR(void) {
     }
     P3IFG = 0;
 }
+
+#pragma vector=PORT2_VECTOR
+__interrupt void Port_2_ISR(void)
+{
+ if (P2IFG & NORTH_LEFT_PIN)
+    {
+        northLeftDemand = true;
+        P2IFG &= ~NORTH_LEFT_PIN;
+    }
+
+    if (P2IFG & SOUTH_LEFT_PIN)
+    {
+        southLeftDemand = true;
+        P2IFG &= ~SOUTH_LEFT_PIN;
+    }
+
+    // Optional safety clear
+    P2IFG &= ~(NORTH_LEFT_PIN | SOUTH_LEFT_PIN);
+}
+
+/*
+Commands on the controller and their corresponding hex values; Should be used to key into emergency state
+0:0xE916FF00
+1:0xF30CFF00
+2:0xE718FF00
+3:0xA15EFF00
+4:0xF708FF00
+5:0xE31CFF00
+6:0xA55AFF00
+7:0xBD42FF00
+8:0xAD52FF00
+9:0xB54AFF00
+Power Button:
+Vol+:0xB946FF00
+Vol-:0xEA15FF00
+Up Arrow:0xF609FF00
+Down Arrow:0xF807FF00
+Back Button:0xBB44FF00
+Pause Button:0xBF40FF00
+Fast Foward:0xBC43FF00
+Func/Stop:0xB847FF00
+EQ:0xE619FF00
+ST/REPT:0xF20DFF00
+*/
