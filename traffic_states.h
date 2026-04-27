@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-
 /* ============================================================================
  * LED BIT ASSIGNMENTS (Based on Physical Intersection Model - 31 LEDs Total)
  * ========================================================================= */

@@ -1,5 +1,8 @@
 #include "traffic_states.h"
 #include <string.h>
+//TRYING THIS 
+volatile bool northLeftDemand = false;
+volatile bool southLeftDemand = false;
 
 /* ============================================================================
  * HELPER FUNCTIONS
@@ -598,7 +601,7 @@ TrafficState getNextState(TrafficState currentState, OperatingMode mode) {
             case STATE_NS_YELLOW:       return STATE_ALL_RED_1;
             case STATE_ALL_RED_1:
                 /* Decision: North left demanded? */
-                if (northLeftDemand) {
+                if (northLeftDemand){
                     northLeftDemand = false;
                     return STATE_N_LEFT_GREEN;
                 }
