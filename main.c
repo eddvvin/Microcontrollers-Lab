@@ -130,6 +130,7 @@ volatile State_walking state_walking[NUM_DEVICES];
 volatile uint8_t walk_counter[NUM_DEVICES];
 volatile uint8_t walk_display_time[NUM_DEVICES];
 volatile uint8_t tick_1s = 0;
+volatile uint16_t msCount = 0;
 
 // Walk request flags - set by button press, cleared after start_walk()
 volatile bool pedWalkRequest[NUM_DEVICES];
@@ -327,7 +328,7 @@ int main(void) {
     Timer_init();
     matrixPinInit();
     ledMatrixInit();
-    Timer1_init();
+    // Timer1_init();
 
     initLEDState(&currentLEDs);
     setAllRed(&currentLEDs);
@@ -629,14 +630,6 @@ void Timer_init(void) {
     TB0CCTL0 = CCIE;
 }
 
-void Timer1_init(void) {
-    // Timer_A1: 1 second tick for pedestrian countdown
-    // ACLK (32.768kHz), CCR0=32767 -> 1Hz -> 1s
-    TA1CTL   = TASSEL_1 | MC_1 | TACLR;
-    TA1CCR0  = 32768 - 1;
-    TA1CCTL0 = CCIE;
-}
-
 // ============================================================================
 // MODE CONTROL
 // ============================================================================
@@ -726,9 +719,9 @@ void matrixShiftOut(uint8_t bitOrder, uint16_t value) {
             if (value & 0x8000) matrixDataHigh(); else matrixDataLow();
             value <<= 1;
         }
-        __delay_cycles(500);
+        __delay_cycles(1);
         matrixClockHigh();
-        __delay_cycles(500);
+        __delay_cycles(1);
         matrixClockLow();
     }
 }
@@ -1012,13 +1005,6 @@ __interrupt void TIMER0_A1_ISR(void)
     }
 }
 
-// Timer_A1 - 1 second tick (pedestrian countdown)
-#pragma vector=TIMER1_A0_VECTOR
-__interrupt void Timer_A1_ISR(void) {
-    tick_1s = 1;
-    __bic_SR_register_on_exit(LPM0_bits);
-}
-
 //Timer1_A1 - IR Channel 3 
 #pragma vector = TIMER1_A1_VECTOR
 __interrupt void TIMER1_A1_ISR(void)
@@ -1039,8 +1025,17 @@ __interrupt void TIMER1_A1_ISR(void)
 
 // Timer_B0 - 1ms tick (traffic signal state machine)
 #pragma vector=TIMER0_B0_VECTOR
-__interrupt void Timer_B0_ISR(void) {
+__interrupt void Timer_B0_ISR(void) {   
     systemTick++;
+
+    // 1-second tick derived from 1ms timer
+    msCount++;
+    if (msCount >= 1000) {
+        msCount = 0;
+        tick_1s = 1;
+        __bic_SR_register_on_exit(LPM0_bits);
+    }
+
     if (stateTimer > 0) {
         stateTimer--;
         if (stateTimer == 0) {
