@@ -6,7 +6,7 @@
 #include <driverlib.h>
 //can use 8.6 or 8.5 for the clk pin of the matrix and instead switch back the ccr0 pin back to p1.5
 //For testing left and south demand
-#define NORTH_LEFT_PIN   BIT4   // P2.6
+#define NORTH_LEFT_PIN   BIT4   // P2.4
 #define SOUTH_LEFT_PIN   BIT5   // P2.5
 void initLeftTurnSensors(void);
 
@@ -31,10 +31,10 @@ void initLeftTurnSensors(void);
 // ============================================================================
 
 // No longer using these buttons
-#define BTN_MODE_DAYTIME        BIT0    // P3.0
-#define BTN_MODE_HIGH_TRAFFIC   BIT1    // P3.1
-#define BTN_MODE_NIGHT          BIT2    // P3.2
-#define BTN_PED_NORTH           BIT4    // P3.4 // new pinout
+// #define BTN_MODE_DAYTIME        BIT0    // P3.0
+// #define BTN_MODE_HIGH_TRAFFIC   BIT1    // P3.1
+// #define BTN_MODE_NIGHT          BIT2    // P3.2
+#define BTN_PED_NORTH           BIT3    // P3.3
 #define BTN_PED_WEST            BIT6    // P3.6
 #define BTN_PED_SOUTH           BIT0    // P4.0
 #define BTN_PED_EAST            BIT1    // P4.1
@@ -145,30 +145,125 @@ volatile uint32_t result[NUM_CHANNELS];
 // 0-9: digits | 10: stop hand | 11: walking person
 // ============================================================================
 const uint8_t images[NUM_OF_DIGIT][8] = {
-    { 0b00111100, 0b01100110, 0b01101110, 0b01110110,   // 0
-      0b01100110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b00011000, 0b00111000, 0b00011000, 0b00011000,   // 1
-      0b00011000, 0b00011000, 0b00111100, 0b00000000 },
-    { 0b00111100, 0b01100110, 0b00000110, 0b00001100,   // 2
-      0b00011000, 0b00110000, 0b01111110, 0b00000000 },
-    { 0b00111100, 0b01100110, 0b00000110, 0b00011100,   // 3
-      0b00000110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b00001100, 0b00011100, 0b00101100, 0b01001100,   // 4
-      0b01111110, 0b00001100, 0b00001100, 0b00000000 },
-    { 0b01111110, 0b01100000, 0b01111100, 0b00000110,   // 5
-      0b00000110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b00111100, 0b01100110, 0b01100000, 0b01111100,   // 6
-      0b01100110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b01111110, 0b00000110, 0b00001100, 0b00011000,   // 7
-      0b00110000, 0b00110000, 0b00110000, 0b00000000 },
-    { 0b00111100, 0b01100110, 0b01100110, 0b00111100,   // 8
-      0b01100110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b00111100, 0b01100110, 0b01100110, 0b00111110,   // 9
-      0b00000110, 0b01100110, 0b00111100, 0b00000000 },
-    { 0b00111100, 0b00111100, 0b00111100, 0b00111100,   // 10 - stop hand
-      0b00111100, 0b00111100, 0b00000000, 0b00011000 },
-    { 0b00011000, 0b00111100, 0b00011000, 0b01111110,   // 11 - walking person
-      0b00011000, 0b00100100, 0b01000010, 0b00000000 }
+    { 
+    0b00000000, 
+    0b01111100, 
+    0b11111110, 
+    0b10100010,   // 0
+    0b10010010, 
+    0b11111110, 
+    0b01111100, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b00000000, 
+    0b00000010, 
+    0b11111110,   // 1
+    0b11111110, 
+    0b01000010, 
+    0b00000000, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b01100010, 
+    0b11110010, 
+    0b10011010,   // 2
+    0b10001110, 
+    0b11000110, 
+    0b01000010, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b01101100, 
+    0b11111110, 
+    0b10010010,   // 3
+    0b10010010, 
+    0b11000110, 
+    0b01000100, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b00001000, 
+    0b11111110, 
+    0b11111110,   // 4
+    0b01001000, 
+    0b00101000, 
+    0b00011000, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b10011100, 
+    0b10111110, 
+    0b10100010,   // 5
+    0b10100010, 
+    0b11100110, 
+    0b11100100, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b01001100, 
+    0b11011110, 
+    0b10010010,   // 6
+    0b10010010, 
+    0b11111110, 
+    0b01111100, 
+    0b00000000 },
+
+    { 
+    0b00000000, 
+    0b11000000, 
+    0b11100000, 
+    0b10110000,   // 7
+    0b10011110, 
+    0b10001110, 
+    0b10000000, 
+    0b00000000 },
+
+    {
+    0b00000000,
+    0b01101100, 
+    0b11111110, 
+    0b10010010,   // 8
+    0b10010010, 
+    0b11111110, 
+    0b01101100, 
+    0b00000000 },
+
+    { 
+    0b00000000,
+    0b01111100, 
+    0b11111110, 
+    0b10010010,   // 9
+    0b10010010, 
+    0b11110110, 
+    0b01100100, 
+    0b00000000 },
+
+    { 
+    0b00000000,
+    0b00000000,
+    0b11111100,
+    0b11111101,   // 10 - stop hand
+    0b11111101,
+    0b11111100,
+    0b00000000,
+    0b00000000 },
+
+   {
+    0b00000000, 
+    0b00010010, 
+    0b01010100, 
+    0b11111000,   // 11 - walking person
+    0b11111000, 
+    0b01010100, 
+    0b00010010, 
+    0b00000000 }
 };
 
 // ============================================================================
@@ -509,12 +604,9 @@ void GPIO_init(void) {
     P2OUT &= ~(DATA_PIN | SHIFT_CLK_PIN | LATCH_CLK_PIN);
 
     // P3: mode buttons + North and West pedestrian buttons
-    P3DIR &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
-           BTN_PED_NORTH | BTN_PED_WEST);    
-    P3REN |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
-               BTN_PED_NORTH | BTN_PED_WEST);
-    P3OUT |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
-               BTN_PED_NORTH | BTN_PED_WEST);
+    P3DIR &= ~(BTN_PED_NORTH | BTN_PED_WEST);
+    P3REN |=  (BTN_PED_NORTH | BTN_PED_WEST);
+    P3OUT |=  (BTN_PED_NORTH | BTN_PED_WEST);
 
     // P4.0 and P4.1: South and East pedestrian buttons
     // P4.2 is reserved for matrix data line - do not touch
@@ -524,9 +616,9 @@ void GPIO_init(void) {
 
     // Mode buttons get interrupt-driven response
     // Pedestrian buttons are polled in main loop - gated by vehicle phase
-    P3IES |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
-    P3IE  |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
-    P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
+    // P3IES |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
+    // P3IE  |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
+    // P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
 }
 
 void Timer_init(void) {
@@ -826,7 +918,7 @@ void initPins(void){
     P1SEL0 |= BIT7;
     P1SEL1 |= BIT7;
 
-    //P3.3 -> CCR
+    //P3.3 -> CCR3
     P3DIR &= ~BIT3;
     P3SEL0 &= ~BIT3;
     P3SEL1 |= BIT3;
@@ -958,15 +1050,15 @@ __interrupt void Timer_B0_ISR(void) {
     }
 }
 
-// Port 3 - Mode button interrupts (pedestrian buttons are polled)
-#pragma vector=PORT3_VECTOR
-__interrupt void Port_3_ISR(void) {
-    if (P3IFG & (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT)) {
-        P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
-        __bic_SR_register_on_exit(LPM0_bits);
-    }
-    P3IFG = 0;
-}
+// // Port 3 - Mode button interrupts (pedestrian buttons are polled)
+// #pragma vector=PORT3_VECTOR
+// __interrupt void Port_3_ISR(void) {
+//     if (P3IFG & (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT)) {
+//         P3IFG &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT);
+//         __bic_SR_register_on_exit(LPM0_bits);
+//     }
+//     P3IFG = 0;
+// }
 
 #pragma vector=PORT2_VECTOR
 __interrupt void Port_2_ISR(void)
