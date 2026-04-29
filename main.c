@@ -34,7 +34,7 @@ void initLeftTurnSensors(void);
 #define BTN_MODE_DAYTIME        BIT0    // P3.0
 #define BTN_MODE_HIGH_TRAFFIC   BIT1    // P3.1
 #define BTN_MODE_NIGHT          BIT2    // P3.2
-#define BTN_PED_NORTH           BIT3    // P3.3
+#define BTN_PED_NORTH           BIT4    // P3.4 // new pinout
 #define BTN_PED_WEST            BIT6    // P3.6
 #define BTN_PED_SOUTH           BIT0    // P4.0
 #define BTN_PED_EAST            BIT1    // P4.1
@@ -510,7 +510,7 @@ void GPIO_init(void) {
 
     // P3: mode buttons + North and West pedestrian buttons
     P3DIR &= ~(BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
-               BTN_PED_NORTH | BTN_PED_WEST);
+           BTN_PED_NORTH | BTN_PED_WEST);    
     P3REN |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
                BTN_PED_NORTH | BTN_PED_WEST);
     P3OUT |=  (BTN_MODE_DAYTIME | BTN_MODE_HIGH_TRAFFIC | BTN_MODE_NIGHT |
